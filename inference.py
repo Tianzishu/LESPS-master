@@ -3,7 +3,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from net import Net
 from dataset import *
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from metrics import *
 import os
 import time
@@ -18,9 +18,9 @@ parser.add_argument("--dataset_names", default=['Dataset-point'], nargs='+',
                     help="dataset_name: 'NUAA-SIRST', 'NUDT-SIRST', 'IRSTD-1K', 'SIRST3', 'NUDT-SIRST-Sea'")
 parser.add_argument("--img_norm_cfg", default=None, type=dict,
                     help="specific a img_norm_cfg, default=None (using img_norm_cfg values of each dataset)")
-parser.add_argument("--img_norm_cfg_mean", default=None, type=float,
+parser.add_argument("--img_norm_cfg_mean", default=76.048, type=float,
                     help="specific a mean value img_norm_cfg, default=None (using img_norm_cfg values of each dataset)")
-parser.add_argument("--img_norm_cfg_std", default=None, type=float,
+parser.add_argument("--img_norm_cfg_std", default=28.732, type=float,
                     help="specific a std value img_norm_cfg, default=None (using img_norm_cfg values of each dataset)")
 
 parser.add_argument("--dataset_dir", default='./datasets/', type=str, help="train_dataset_dir")
@@ -28,6 +28,7 @@ parser.add_argument("--save_img", default=True, type=bool, help="save image of o
 parser.add_argument("--save_img_dir", type=str, default='./results/', help="path of saved image")
 parser.add_argument("--save_log", type=str, default='./log/', help="path of saved .pth")
 parser.add_argument("--threshold", type=float, default=0.5)
+parser.add_argument("--patchSize", type=int, default=2048, help="Training patch size, default: 512")
 
 global opt
 opt = parser.parse_args()
@@ -50,17 +51,32 @@ def test():
     with torch.no_grad():
         for idx_iter, (img, size, img_dir) in tqdm(enumerate(test_loader)):
             img = Variable(img).cuda()
-            pred = net.forward(img).cpu()
-            pred = pred[:,:,:size[0],:size[1]].cpu()
+            b, c, h, w = img.shape
+            if h > opt.patchSize and w > opt.patchSize:
+                img_unfold = F.unfold(img[:,:,:,:], opt.patchSize, stride=opt.patchSize)
+                img_unfold = img_unfold.reshape(c, opt.patchSize, opt.patchSize, -1).permute(3, 0, 1, 2)
+                patch_num = img_unfold.size(0)
+                for pi in range(patch_num):
+                    img_pi = img_unfold[pi, :,:,:].unsqueeze(0).float()
+                    img_pi = Variable(img_pi)
+                    preds_pi = net.forward(img_pi)
+                    if pi == 0:
+                        preds = preds_pi
+                    else:
+                        preds = torch.cat([preds, preds_pi], dim=0)
+                preds = preds.permute(1,2,3,0).unsqueeze(0)
+                pred = F.fold(preds.reshape(1,-1,patch_num), kernel_size=opt.patchSize, stride=opt.patchSize, output_size=(h,w))
+            else: 
+                pred = net.forward(img)  
+            pred = pred[:,:,:size[0],:size[1]]
             ### save img
             model_name = opt.pth_dir.split('/')[-1] .split('.')[0]
             if opt.save_img == True:
                 img_save = transforms.ToPILImage()((pred[0,:,:size[0],:size[1]]).cpu())
                 if not os.path.exists(opt.save_img_dir + opt.test_dataset_name + '/' + model_name ):
                     os.makedirs(opt.save_img_dir + opt.test_dataset_name + '/' + model_name )
-                img_save.save(opt.save_img_dir + opt.test_dataset_name + '/' + model_name + '/' + img_dir[0] + '.png')
-            del img, pred, img_save
-            torch.cuda.empty_cache()
+                img_save.save(opt.save_img_dir + opt.test_dataset_name + '/' + model_name + '/' + img_dir[0] + '.png')  
+
 if __name__ == '__main__':
     for pth_dir in opt.pth_dirs:
         opt.train_dataset_name = pth_dir.split('/')[0]

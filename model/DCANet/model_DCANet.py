@@ -73,7 +73,7 @@ class Res_SimAM_block(nn.Module):
 
 
 class DCANet(nn.Module):
-    def __init__(self, num_classes=1, input_channels=1, block=Res_SimAM_block, num_blocks=[2, 2, 2, 2], nb_filter=[1, 2, 4, 8, 16], deep_supervision=True, mode='test'):
+    def __init__(self, num_classes=1, input_channels=1, block=Res_SimAM_block, num_blocks=[2, 2, 2, 2], nb_filter=[2, 2, 2, 2, 2], deep_supervision=True, mode='test'):
         super(DCANet, self).__init__()
         self.mode = mode
         self.fmap_block = dict()  # 装feature map
